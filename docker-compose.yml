@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: compare_batiment_app
+    ports:
+      - "5000:5000"  # Backend Flask
+      - "8501:8501"  # Frontend Streamlit
+    volumes:
+      # KHÔNG mount temp_pdf - để dữ liệu chỉ trong container (tự động cleanup khi container xóa)
+      # temp_pdf sẽ được tạo và lưu trong /app/temp_pdf trong container
+      - ./.env:/app/.env:ro  # Mount .env nếu có (chỉ đọc)
+    environment:
+      - PORT=5000
+      - FLASK_ENV=production
+      # Internal URL: dùng cho server-side API calls
+      - BACKEND_URL_INTERNAL=http://localhost:5000
+      # External URL: dùng cho client-side iframe (browser cần truy cập được)
+      - BACKEND_URL_EXTERNAL=http://164.90.182.163:5000
+    restart: unless-stopped
+
