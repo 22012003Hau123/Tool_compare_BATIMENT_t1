@@ -230,7 +230,7 @@ def compare_pairs(
                 "status": "unmatched_pair"
             })
             
-            # Annotate PDF1 (Red)
+            # Annotate Ref PDF (Red)
             page1 = doc1.load_page(p1["page"])
             rect1 = fitz.Rect(p1["bbox"])
             annot1 = page1.add_rect_annot(rect1)
@@ -238,16 +238,13 @@ def compare_pairs(
             annot1.set_border(width=2.0)
             annot1.set_opacity(0.5)
             annot1.set_info(
-                title="✗ Produit Non-Correspondant (Paire)",
-                content=f"Pairé avec {os.path.basename(p2['file'])} mais hash distance trop grande: {dist} > {hash_threshold}"
+                title="✗ Non Correspondant",
+                content=f"Hash distance: {dist}"
             )
             annot1.update()
             annotations_added_pdf1 += 1
             
-            # Mark p2 as used (it's in a pair even though unmatched)
-            matched_p2_ids.add(id(p2))
-            
-            # Annotate PDF2 (Red) also
+            # Annotate Final PDF (Red)
             page2 = doc2.load_page(p2["page"])
             rect2 = fitz.Rect(p2["bbox"])
             annot2 = page2.add_rect_annot(rect2)
@@ -255,13 +252,16 @@ def compare_pairs(
             annot2.set_border(width=2.0)
             annot2.set_opacity(0.5)
             annot2.set_info(
-                title="✗ Produit Non-Correspondant (Paire)",
-                content=f"Pairé avec {os.path.basename(p1['file'])} mais hash distance trop grande: {dist} > {hash_threshold}"
+                title="✗ Non Correspondant",
+                content=f"Hash distance: {dist}"
             )
             annot2.update()
             annotations_added_pdf2 += 1
+            
+            # Mark as used
+            matched_p2_ids.add(id(p2))
     
-    # Find products in PDF2 that were never matched (exist only in PDF2)
+    # Products only in Final PDF (never paired)
     for p2 in list2:
         if id(p2) not in matched_p2_ids:
             w2, h2 = p2["width_px"], p2["height_px"]
@@ -278,7 +278,7 @@ def compare_pairs(
                 "status": "unmatched_in_pdf2"
             })
             
-            # Annotate ONLY PDF2 (Red - product exists here but no match)
+            # Annotate ONLY Final PDF (Red)
             page2 = doc2.load_page(p2["page"])
             rect2 = fitz.Rect(p2["bbox"])
             annot2 = page2.add_rect_annot(rect2)
@@ -286,8 +286,8 @@ def compare_pairs(
             annot2.set_border(width=2.0)
             annot2.set_opacity(0.5)
             annot2.set_info(
-                title="✗ Produit Non-Correspondant",
-                content="Aucune image similaire trouvée dans le PDF de référence"
+                title="✗ Non Correspondant",
+                content="Produit non trouvé dans Ref"
             )
             annot2.update()
             annotations_added_pdf2 += 1
