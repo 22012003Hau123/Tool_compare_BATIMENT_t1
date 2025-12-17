@@ -44,6 +44,12 @@ def extract_products(pdf_path: str, out_dir: str) -> List[Dict]:
                 bbox = block["bbox"]
                 x0, y0, x1, y1 = bbox
 
+                # Exclude footer zone (50px from bottom)
+                page_height = page.rect.height
+                footer_zone_start = page_height - 50
+                if y1 > footer_zone_start:
+                    continue  # Skip images in footer
+
                 width_pt = x1 - x0
                 height_pt = y1 - y0
 
@@ -62,7 +68,7 @@ def extract_products(pdf_path: str, out_dir: str) -> List[Dict]:
                     "width_pt": width_pt,
                     "height_pt": height_pt,
                     "width_px": width_px,
-                    "height_px": height_pt,
+                    "height_px": height_px,
                     "bbox": bbox
                 })
                 idx += 1
