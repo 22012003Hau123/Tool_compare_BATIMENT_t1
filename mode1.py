@@ -27,57 +27,44 @@ DEFAULT_HASH_THRESHOLD = 24
 
 def extract_products(pdf_path: str, out_dir: str) -> List[Dict]:
     """
-    Trích xuất TOUTES les images du PDF (y compris petits logos) et retourne metadata.
-    Utilise page.get_images() pour détecter toutes les images, puis récupère bbox via get_image_bbox().
+    Trích xuất images từ PDF blocks sử dụng get_text('rawdict').
+    Extract image blocks (type 1) và form XObject blocks (type 2).
     """
     os.makedirs(out_dir, exist_ok=True)
     doc = fitz.open(pdf_path)
 
-    products: List[Dict] = []
+    products = []
     idx = 0
 
     for page_index, page in enumerate(doc):
-        # Méthode 1: get_images() - détecte TOUTES les images
-        image_list = page.get_images(full=True)
-        
-        for img_index, img_info in enumerate(image_list):
-            xref = img_info[0]  # xref number de l'image
-            
-            # Récupérer les positions (bboxes) de cette image sur la page
-            # Une même image peut apparaître plusieurs fois (instances multiples)
-            rects = page.get_image_rects(xref)
-            
-            for rect in rects:
-                bbox = tuple(rect)  # (x0, y0, x1, y1)
+        raw = page.get_text("rawdict")
+
+        for block in raw["blocks"]:
+            if block["type"] in [1, 2]:  # image block OR form XObject block
+                bbox = block["bbox"]
                 x0, y0, x1, y1 = bbox
+
                 width_pt = x1 - x0
                 height_pt = y1 - y0
-                
-                # Ignorer les images trop petites (< 5pt) - probablement des artefacts
-                if width_pt < 5 or height_pt < 5:
-                    continue
 
                 width_px = width_pt * 96 / 72
                 height_px = height_pt * 96 / 72
 
-                # Extraire l'image à cette position
-                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), clip=rect)
-                
+                r = fitz.Rect(bbox)
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), clip=r)
+
                 filename = os.path.join(out_dir, f"product_{idx}.png")
                 pix.save(filename)
 
-                products.append(
-                    {
-                        "file": filename,
-                        "page": page_index,
-                        "width_pt": width_pt,
-                        "height_pt": height_pt,
-                        "width_px": width_px,
-                        "height_px": height_px,
-                        "bbox": bbox,
-                        "xref": xref,  # ID unique de l'image source
-                    }
-                )
+                products.append({
+                    "file": filename,
+                    "page": page_index,
+                    "width_pt": width_pt,
+                    "height_pt": height_pt,
+                    "width_px": width_px,
+                    "height_px": height_pt,
+                    "bbox": bbox
+                })
                 idx += 1
 
     doc.close()
