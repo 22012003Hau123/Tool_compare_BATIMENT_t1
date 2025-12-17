@@ -22,7 +22,7 @@ import imagehash
 from pdf_optimizer import smart_preprocess
 
 # Ngưỡng hash distance để coi là cùng sản phẩm
-DEFAULT_HASH_THRESHOLD = 24
+DEFAULT_HASH_THRESHOLD = 28
 
 
 def extract_products(pdf_path: str, out_dir: str) -> List[Dict]:
@@ -217,20 +217,20 @@ def compare_pairs(
             
         else:
             # UNMATCHED PAIR (dist > hash_threshold)
-            # Only annotate on PDF1 (Reference) - don't draw on PDF2 to avoid confusion
+            # Annotate on BOTH PDFs (Red) - show they're paired but don't match well
             comparisons.append({
                 "pdf1_file": os.path.basename(p1["file"]),
-                "pdf2_file": None,
+                "pdf2_file": os.path.basename(p2["file"]),
                 "hash_distance": dist,
                 "pdf1_size_px": (w1, h1),
-                "pdf2_size_px": None,
+                "pdf2_size_px": (w2, h2),
                 "scale_percent": None,
                 "page": p1["page"],
                 "bbox": p1["bbox"],
-                "status": "unmatched_in_pdf1"
+                "status": "unmatched_pair"
             })
             
-            # Annotate ONLY PDF1 (Red - product exists here but no match)
+            # Annotate PDF1 (Red)
             page1 = doc1.load_page(p1["page"])
             rect1 = fitz.Rect(p1["bbox"])
             annot1 = page1.add_rect_annot(rect1)
@@ -238,11 +238,28 @@ def compare_pairs(
             annot1.set_border(width=2.0)
             annot1.set_opacity(0.5)
             annot1.set_info(
-                title="✗ Produit Non-Correspondant",
-                content=f"Aucune image similaire trouvée dans le PDF final\nDistance hash: {dist}"
+                title="✗ Produit Non-Correspondant (Paire)",
+                content=f"Pairé avec {os.path.basename(p2['file'])} mais hash distance trop grande: {dist} > {hash_threshold}"
             )
             annot1.update()
             annotations_added_pdf1 += 1
+            
+            # Mark p2 as used (it's in a pair even though unmatched)
+            matched_p2_ids.add(id(p2))
+            
+            # Annotate PDF2 (Red) also
+            page2 = doc2.load_page(p2["page"])
+            rect2 = fitz.Rect(p2["bbox"])
+            annot2 = page2.add_rect_annot(rect2)
+            annot2.set_colors(stroke=(1, 0, 0))  # Red
+            annot2.set_border(width=2.0)
+            annot2.set_opacity(0.5)
+            annot2.set_info(
+                title="✗ Produit Non-Correspondant (Paire)",
+                content=f"Pairé avec {os.path.basename(p1['file'])} mais hash distance trop grande: {dist} > {hash_threshold}"
+            )
+            annot2.update()
+            annotations_added_pdf2 += 1
     
     # Find products in PDF2 that were never matched (exist only in PDF2)
     for p2 in list2:
