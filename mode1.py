@@ -292,6 +292,24 @@ def compare_pairs(
             annot2.update()
             annotations_added_pdf2 += 1
     
+    # Products only in Ref PDF (never paired) - deleted in Final
+    matched_p1_ids = set(id(p1) for p1, p2, dist in pairs)
+    for p1 in list1:
+        if id(p1) not in matched_p1_ids:
+            # Annotate ONLY Ref PDF (Red)
+            page1 = doc1.load_page(p1["page"])
+            rect1 = fitz.Rect(p1["bbox"])
+            annot1 = page1.add_rect_annot(rect1)
+            annot1.set_colors(stroke=(1, 0, 0))  # Red
+            annot1.set_border(width=2.0)
+            annot1.set_opacity(0.5)
+            annot1.set_info(
+                title="✗ Non Correspondant",
+                content="Produit non trouvé dans Final"
+            )
+            annot1.update()
+            annotations_added_pdf1 += 1
+    
     # Save both annotated PDFs
     doc1.save(output_pdf1, garbage=4, deflate=True)
     doc1.close()
