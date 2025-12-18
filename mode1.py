@@ -77,6 +77,179 @@ def extract_products(pdf_path: str, out_dir: str) -> List[Dict]:
     return products
 
 
+def should_compare_text_block(text: str) -> bool:
+    """
+    Filter text blocks for comparison.
+    Skip:
+    - Blocks with <5 words
+    - Blocks with too many numbers (>50% - prices, measurements, units)
+    """
+    words = text.split()
+    
+    # Filter 1: Must have at least 5 words
+    if len(words) < 5:
+        return False
+    
+    # Filter 2: Skip blocks with too many numbers
+    # Count digits vs letters
+    digit_count = sum(c.isdigit() for c in text)
+    letter_count = sum(c.isalpha() for c in text)
+    
+    if letter_count == 0:
+        return False
+    
+    # If >50% is digits → likely prices/measurements
+    digit_ratio = digit_count / (digit_count + letter_count)
+    if digit_ratio > 0.5:
+        return False
+    
+    return True
+
+
+def extract_text_blocks_ocr(pdf_path: str) -> List[Dict]:
+    """
+    Extract text blocks using PaddleOCR (for scanned PDFs).
+    Returns list of detected text blocks with bbox.
+    """
+    try:
+        from paddleocr import PaddleOCR
+        import cv2
+        import numpy as np
+        
+        # Initialize OCR (suppress logging)
+        ocr = PaddleOCR(use_angle_cls=True, lang='fr', show_log=False)
+        
+        # Convert PDF pages to images
+        doc = fitz.open(pdf_path)
+        text_blocks = []
+        idx = 0
+        
+        for page_index, page in enumerate(doc):
+            # Render page to image
+            pix = page.get_pixmap(dpi=200)  # High DPI for OCR
+            img_data = pix.tobytes("png")
+            
+            # Convert to numpy array for OCR
+            nparr = np.frombuffer(img_data, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            # Run OCR
+            result = ocr.ocr(img, cls=True)
+            
+            if not result or not result[0]:
+                continue
+            
+            # Process OCR results
+            for line in result[0]:
+                bbox_points = line[0]  # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+                text_info = line[1]    # (text, confidence)
+                text = text_info[0]
+                confidence = text_info[1]
+                
+                # Skip low confidence
+                if confidence < 0.7:
+                    continue
+                
+                # Calculate bbox (x0, y0, x1, y1)
+                xs = [p[0] for p in bbox_points]
+                ys = [p[1] for p in bbox_points]
+                bbox = (min(xs), min(ys), max(xs), max(ys))
+                
+                # Apply filters
+                if not should_compare_text_block(text):
+                    continue
+                
+                text_blocks.append({
+                    "id": idx,
+                    "page": page_index,
+                    "bbox": bbox,
+                    "text": text,
+                    "normalized": normalize_text(text),
+                    "source": "ocr"
+                })
+                idx += 1
+        
+        doc.close()
+        return text_blocks
+        
+    except ImportError:
+        print("⚠️ PaddleOCR not installed, skipping OCR extraction")
+        return []
+    except Exception as e:
+        print(f"⚠️ OCR extraction failed: {e}")
+        return []
+
+
+def extract_text_blocks(pdf_path: str) -> List[Dict]:
+    """
+    Extract text blocks from PDF with bbox and content.
+    Hybrid approach: Try PyMuPDF first, fallback to OCR if needed.
+    Filters: >5 words, not too many numbers, not tables, not headings.
+    """
+    doc = fitz.open(pdf_path)
+    text_blocks = []
+    idx = 0
+    
+    for page_index, page in enumerate(doc):
+        # Get text blocks using dict format
+        blocks = page.get_text("dict")["blocks"]
+        
+        for block in blocks:
+            if block["type"] == 0:  # Text block (not image/table)
+                # Get text lines and check font size
+                lines = []
+                max_font_size = 0
+                
+                for line in block.get("lines", []):
+                    line_text = ""
+                    for span in line.get("spans", []):
+                        line_text += span.get("text", "")
+                        # Track max font size
+                        font_size = span.get("size", 0)
+                        if font_size > max_font_size:
+                            max_font_size = font_size
+                    if line_text.strip():
+                        lines.append(line_text)
+                
+                if not lines:
+                    continue
+                
+                # Skip headings (large font size > 11pt)
+                # Body text usually 9-11pt, headings 12pt+
+                if max_font_size > 11:
+                    continue
+                
+                # Join lines with newline
+                text = "\n".join(lines)
+                
+                # Apply filters
+                if not should_compare_text_block(text):
+                    continue
+                
+                bbox = tuple(block["bbox"])
+                
+                text_blocks.append({
+                    "id": idx,
+                    "page": page_index,
+                    "bbox": bbox,
+                    "text": text,  # Original text with line breaks
+                    "normalized": normalize_text(text),  # For comparison
+                    "source": "pymupdf"
+                })
+                idx += 1
+    
+    doc.close()
+    
+    # If no text found with PyMuPDF, try OCR (scanned PDF)
+    if len(text_blocks) == 0:
+        print("   ⚠️ No embedded text found, trying OCR...")
+        text_blocks = extract_text_blocks_ocr(pdf_path)
+        if text_blocks:
+            print(f"   ✅ OCR extracted {len(text_blocks)} text blocks")
+    
+    return text_blocks
+
+
 def compute_hash(path: str):
     img = Image.open(path).convert("RGB")
     return imagehash.phash(img)
